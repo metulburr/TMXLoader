@@ -26,7 +26,8 @@ class Tileset:
         return self.tiles[gid]
 
 class TMXHandler(sax.ContentHandler):
-    def __init__(self):
+    def __init__(self, debug=False):
+        self.debug = debug
         self.width = 0
         self.height = 0
         self.tile_width = 0
@@ -36,32 +37,35 @@ class TMXHandler(sax.ContentHandler):
         self.properties = {}
         self.image = None
         self.tileset = None
+        self.objects = {} #{objectname:[{'x':x, 'y':y, 'width':width, 'height':height]}
+        self.key = None
 
     def startElement(self, name, attrs):
         # get most general map informations and create a surface
         if name == 'map':
-            self.columns = int(attrs.get('width', None))
-            self.lines  = int(attrs.get('height', None))
-            self.tile_width = int(attrs.get('tilewidth', None))
-            self.tile_height = int(attrs.get('tileheight', None))
+            self.columns = int(attrs.get('width'))
+            self.lines  = int(attrs.get('height'))
+            self.tile_width = int(attrs.get('tilewidth'))
+            self.tile_height = int(attrs.get('tileheight'))
             self.width = self.columns * self.tile_width
             self.height = self.lines * self.tile_height
             self.image = pg.Surface([self.width, self.height]).convert()
         # create a tileset
         elif name=="image":
-            source = attrs.get('source', None)
+            source = attrs.get('source')
             self.tileset = Tileset(source, self.tile_width, self.tile_height)
         # store additional properties.
         elif name == 'property':
-            self.properties[attrs.get('name', None)] = attrs.get('value', None)
+            self.properties[attrs.get('name')] = attrs.get('value', None)
         # starting counting
         elif name == 'layer':
             self.line = 0
             self.column = 0
         # get information of each tile and put on the surface using the tileset
         elif name == 'tile':
-            gid = int(attrs.get('gid', None)) - 1
-            if gid <0: gid = 0
+            gid = int(attrs.get('gid')) - 1
+            if gid < 0: 
+                gid = 0
             tile = self.tileset.get_tile(gid)
             pos = (self.column*self.tile_width, self.line*self.tile_height)
             self.image.blit(tile, pos)
@@ -70,12 +74,41 @@ class TMXHandler(sax.ContentHandler):
             if(self.column>=self.columns):
                 self.column = 0
                 self.line += 1
+        elif name == 'objectgroup':
+            self.line = 0
+            self.column = 0
+            self.key = attrs.get('name')
+            self.objects[self.key] = []
+        elif name == 'object':
+            self.objects[self.key].append({
+                    'x':attrs.get('x'),
+                    'y':attrs.get('y'),
+                    'width':attrs.get('width'),
+                    'height':attrs.get('height'),
+                }
+            )
+            
+            self.column += 1
+            if(self.column>=self.columns):
+                self.column = 0
+                self.line += 1
 
     # just for debugging
     def endDocument(self):
-        print('{} {} {} {}'.format(self.width, self.height, self.tile_width, self.tile_height))
-        print(self.properties)
-        print(self.image)
+        if self.debug:
+            print('width:{} height:{} tile width:{} tile height:{}'.format(self.width, self.height, self.tile_width, self.tile_height))
+            print(self.image)
+            print('properties: {}'.format(self.properties))
+            
+            if sys.version[0] == '2':
+                items = self.objects.iteritems()
+            else:
+                items = self.objects.items()
+            print('objects')
+            for k,v in items:
+                print('\t{}:{}'.format(k, len(v)))
+                for index in v:
+                    print('\t\t{}'.format(index))
 
 if __name__ == "__main__": 
     class Control:
@@ -86,8 +119,8 @@ if __name__ == "__main__":
             self.screenrect = self.screen.get_rect()
             self.done = False
             self.parser = sax.make_parser()
-            self.tmxhandler = TMXHandler()
-            self.parser.setContentHandler(self.tmxhandler)
+            self.tmx = TMXHandler(debug=True)
+            self.parser.setContentHandler(self.tmx)
             self.parser.parse(sys.argv[1])
             
         def events(self):
@@ -102,7 +135,7 @@ if __name__ == "__main__":
             
         def render(self):
             self.screen.fill((255,255,255))
-            self.screen.blit(self.tmxhandler.image, (0,0))
+            self.screen.blit(self.tmx.image, (0,0))
             
         def run(self):
             while not self.done:
